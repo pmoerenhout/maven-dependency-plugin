@@ -122,9 +122,9 @@ public class AnalyzeRepositoriesMojo
         throws MojoExecutionException
     {
         // Fetch mirrors from settings
-        for ( CollectedRepository resolvedRepository : getMirrors() )
+        for ( CollectedRepository collectedRepository : getMirrors() )
         {
-            addCollectedRepository( resolvedRepository, "Maven (user/global) settings" );
+            addCollectedRepository( collectedRepository, "Maven (user/global) settings" );
         }
 
         try
@@ -328,13 +328,13 @@ public class AnalyzeRepositoriesMojo
 
     private void addCollectedRepository( Repository repository, String location )
     {
-        CollectedRepository resolvedRepository = new CollectedRepository( repository );
-        Set<String> locations = pomRepositories.get( resolvedRepository );
+        CollectedRepository collectedRepository = new CollectedRepository( repository );
+        Set<String> locations = pomRepositories.get( collectedRepository );
         if ( locations == null )
         {
             locations = new HashSet<>();
             locations.add( location );
-            pomRepositories.put( resolvedRepository,  locations );
+            pomRepositories.put( collectedRepository,  locations );
         }
         else
         {
@@ -344,16 +344,16 @@ public class AnalyzeRepositoriesMojo
 
   private List<CollectedRepository> getMirrors()
   {
-      List<CollectedRepository> resolvedRepositories = new ArrayList<>();
+      List<CollectedRepository> collectedRepositories = new ArrayList<>();
       for ( Mirror mirror : settings.getMirrors() )
       {
-          CollectedRepository resolvedRepository = new CollectedRepository();
-          resolvedRepository.setId( mirror.getId() );
-          resolvedRepository.setUrl( mirror.getUrl() );
-          resolvedRepository.setName( mirror.getName() );
-          resolvedRepository.setLayout( mirror.getLayout() );
-          resolvedRepositories.add( resolvedRepository );
+          CollectedRepository collectedRepository = new CollectedRepository();
+          collectedRepository.setId( mirror.getId() );
+          collectedRepository.setUrl( mirror.getUrl() );
+          collectedRepository.setName( mirror.getName() );
+          collectedRepository.setLayout( mirror.getLayout() );
+          collectedRepositories.add( collectedRepository );
       }
-      return resolvedRepositories;
+      return collectedRepositories;
   }
 }
