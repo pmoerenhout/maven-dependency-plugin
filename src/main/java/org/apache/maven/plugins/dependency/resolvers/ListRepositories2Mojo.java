@@ -19,11 +19,8 @@ package org.apache.maven.plugins.dependency.resolvers;
  * under the License.
  */
 
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 import org.apache.maven.artifact.Artifact;
@@ -42,14 +39,14 @@ import org.apache.maven.project.DefaultProjectBuildingRequest;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.project.ProjectBuilder;
 import org.apache.maven.project.ProjectBuildingRequest;
-import org.apache.maven.settings.Mirror;
 import org.apache.maven.settings.Settings;
 import org.apache.maven.shared.transfer.artifact.ArtifactCoordinate;
 import org.apache.maven.shared.transfer.artifact.DefaultArtifactCoordinate;
 import org.apache.maven.shared.transfer.artifact.resolve.ArtifactResolver;
-import org.apache.maven.shared.transfer.dependencies.collect.CollectorResult;
 import org.apache.maven.shared.transfer.dependencies.collect.DependencyCollector;
 import org.apache.maven.shared.transfer.dependencies.collect.DependencyCollectorException;
+import org.apache.maven.shared.transfer.dependencies.collect.DependencyCollectorNode;
+import org.apache.maven.shared.transfer.dependencies.collect.traversal.DependencyCollectorNodeVisitor;
 
 /**
  * Goal that resolves all project dependencies and then lists the repositories used by the build and by the transitive
@@ -58,19 +55,10 @@ import org.apache.maven.shared.transfer.dependencies.collect.DependencyCollector
  * @author <a href="mailto:brianf@apache.org">Brian Fox</a>
  * @since 2.2
  */
-@Mojo( name = "analyze-repositories", requiresDependencyResolution = ResolutionScope.TEST, threadSafe = true )
-public class AnalyzeRepositoriesMojo
+@Mojo( name = "list-repositories-2", requiresDependencyResolution = ResolutionScope.TEST, threadSafe = true )
+public class ListRepositories2Mojo
     extends AbstractDependencyMojo
 {
-//    @Parameter( defaultValue = "${session}", required = true, readonly = true )
-//    private MavenSession session;
-
-//    /**
-//     * Contains the full list of projects in the reactor.
-//    */
-//    @Parameter( defaultValue = "${reactorProjects}", readonly = true, required = true )
-//    private List<MavenProject> reactorProjects;
-
     /**
      * Maven Project Builder component.
     */
@@ -110,8 +98,6 @@ public class AnalyzeRepositoriesMojo
     @Parameter( property = "includeParents", defaultValue = "false" )
     boolean includeParents;
 
-    private HashMap<CollectedRepository, Set<String>> pomRepositories = new HashMap<>();
-
     /**
      * Displays a list of the repositories used by this build.
      *
@@ -121,28 +107,48 @@ public class AnalyzeRepositoriesMojo
     protected void doExecute()
         throws MojoExecutionException
     {
-        // Fetch mirrors from settings
-        for ( CollectedRepository collectedRepository : getMirrors() )
+        final Set<ArtifactRepository> repositories = new HashSet<ArtifactRepository>();
+
+        DependencyCollectorNodeVisitor visitor = new DependencyCollectorNodeVisitor()
         {
-            addCollectedRepository( collectedRepository, "Maven (user/global) settings" );
-        }
+            @Override
+            public boolean visit( DependencyCollectorNode dependencyCollectorNode )
+            {
+                System.out.println( "visit artifact " + dependencyCollectorNode.getArtifact() );
+                for ( ArtifactRepository artifactRepository: dependencyCollectorNode.getRemoteRepositories() )
+                {
+                    System.out.println( " remote repos: " + artifactRepository.getId()
+                        + " " + artifactRepository.getUrl() );
+                }
+                System.out.println( " scope: " + dependencyCollectorNode.getScope() );
+                System.out.println( " optional: " + dependencyCollectorNode.getOptional() );
+                for ( DependencyCollectorNode child : dependencyCollectorNode.getChildren() )
+                {
+                    System.out.println( " child: " + child.getArtifact() );
+                }
+
+                repositories.addAll( dependencyCollectorNode.getRemoteRepositories() );
+
+                return true;
+            }
+
+            @Override
+            public boolean endVisit( DependencyCollectorNode dependencyCollectorNode )
+            {
+                return true;
+            }
+        };
 
         try
         {
             ProjectBuildingRequest projectBuildingRequest = session.getProjectBuildingRequest();
 
-            CollectorResult collectResult =
-                dependencyCollector.collectDependencies( projectBuildingRequest, getProject().getModel() );
-
-            for ( Artifact artifact : collectResult.getArtifacts() )
-            {
-                traversePom( artifact, getMavenProject( ArtifactUtils.key( artifact ) ) );
-            }
+            dependencyCollector.visit( projectBuildingRequest, getProject().getModel(), visitor );
 
             this.getLog().info( "Repositories used by this build:" );
-            for ( ArtifactRepository repo : collectResult.getRemoteRepositories() )
+            for ( ArtifactRepository repo : repositories )
             {
-                listRepository( repo );
+                this.getLog().info( repo.toString() );
             }
         }
         catch ( DependencyCollectorException e )
@@ -151,27 +157,13 @@ public class AnalyzeRepositoriesMojo
         }
     }
 
-    private void listRepository( ArtifactRepository artifactRepository )
+    private void listRepository( ArtifactRepository artifactRepository, Set<String> locations )
     {
-        Set<String> sources = null;
-        for ( Map.Entry<CollectedRepository, Set<String>> entry : pomRepositories.entrySet() )
-        {
-            if ( entry.getKey().getId().equals( artifactRepository.getId() )
-                && entry.getKey().getUrl().equals( artifactRepository.getUrl() ) )
-            {
-                sources = entry.getValue();
-                break;
-            }
-        }
         StringBuilder sb = new StringBuilder( 256 );
         sb.append( artifactRepository.toString() );
-        if ( sources != null )
+        for ( String location : locations )
         {
-            for ( String source : sources )
-            {
-                sb.append( "   source: " ).append( source ).append( "\n" );
-                // this.getLog().info( " @ " + source );
-            }
+            sb.append( "   locate: " ).append( location ).append( "\n" );
         }
         this.getLog().info( sb.toString() );
     }
@@ -256,64 +248,86 @@ public class AnalyzeRepositoriesMojo
         }
     }
 
-    private void traversePom( Artifact artifact, MavenProject mavenProject )
+    private void traversePom( ArtifactRepository artifactRepository,
+                              Artifact artifact, MavenProject mavenProject, Set<String> locations )
         throws MojoExecutionException
     {
         if ( mavenProject != null )
         {
-            for ( Repository r : mavenProject.getOriginalModel().getRepositories() )
+            for ( Repository repository : mavenProject.getOriginalModel().getRepositories() )
             {
-                addCollectedRepository( r, mavenProject.getModel().getPomFile().toString() );
-                this.getLog().debug( "Repository: " + repoAsString( r )
-                    + " @ " + mavenProject.getOriginalModel().getPomFile()
-                    + " @ " + artifact );
-            }
-            for ( Repository r : mavenProject.getOriginalModel().getPluginRepositories() )
-            {
-                addCollectedRepository( r, mavenProject.getModel().getPomFile().toString() );
-                this.getLog().debug( "Plugin repository: " + repoAsString( r )
+                getLog().info( "1: " + artifact + repository.getId() + " - " + artifactRepository.getId() );
+                if ( repository.getId().equals( artifactRepository.getId() ) )
+                {
+                    locations.add( mavenProject.getModel().getPomFile().toString() );
+                    // addCollectedRepository( r, mavenProject.getModel().getPomFile().toString() );
+                    this.getLog().debug( "Repository: " + repoAsString( repository )
                         + " @ " + mavenProject.getOriginalModel().getPomFile()
                         + " @ " + artifact );
+                }
             }
-            traverseParentPom( mavenProject );
+            for ( Repository pluginRepository : mavenProject.getOriginalModel().getPluginRepositories() )
+            {
+                getLog().info( "2: " + artifact + pluginRepository.getId() + " - " + artifactRepository.getId() );
+                if ( pluginRepository.getId().equals( artifactRepository.getId() ) )
+                {
+                    locations.add( mavenProject.getModel().getPomFile().toString() );
+                    // addCollectedRepository( pluginRepository, mavenProject.getModel().getPomFile().toString() );
+                    this.getLog().debug( "Plugin repository: " + repoAsString( pluginRepository )
+                        + " @ " + mavenProject.getOriginalModel().getPomFile()
+                        + " @ " + artifact );
+                }
+            }
+            traverseParentPom( artifactRepository, mavenProject, locations );
         }
         else
         {
             throw new MojoExecutionException( "No POM for the artifact '" + artifact + "'" );
         }
+        return;
     }
 
-    private void traverseParentPom( MavenProject mavenProject )
+    private void traverseParentPom( ArtifactRepository artifactRepository,
+                                    MavenProject mavenProject, Set<String> locations )
         throws MojoExecutionException
     {
         MavenProject parent = mavenProject.getParent();
-        if ( parent == null )
+        if ( parent != null )
         {
-            return;
-        }
-
-        Model originalModel = parent.getOriginalModel();
-        if ( originalModel.getRepositories().size() != 0
-            || originalModel.getPluginRepositories().size() != 0 )
-        {
-            String artifactKey = ArtifactUtils.key( parent.getGroupId(), parent.getArtifactId(), parent.getVersion() );
-            MavenProject parentPom = getMavenProject( artifactKey );
-
-            for ( Repository repository : originalModel.getRepositories() )
+            Model originalModel = parent.getOriginalModel();
+            if ( originalModel.getRepositories().size() != 0
+                || originalModel.getPluginRepositories().size() != 0 )
             {
-                addCollectedRepository( repository, parentPom.getFile().toString() );
-                this.getLog().debug( "Parent repository: " + repoAsString( repository )
-                        + " @ " + parentPom.getFile() );
-            }
-            for ( Repository pluginRepository : originalModel.getPluginRepositories() )
-            {
-                addCollectedRepository( pluginRepository, parentPom.getFile().toString() );
-                this.getLog().debug( "Parent plugin repository: " + repoAsString( pluginRepository )
-                    + " @ " + parentPom.getFile() );
-            }
-        }
+                String artifactKey =
+                    ArtifactUtils.key( parent.getGroupId(), parent.getArtifactId(), parent.getVersion() );
+                MavenProject parentPom = getMavenProject( artifactKey );
 
-        traverseParentPom( parent );
+                for ( Repository repository : originalModel.getRepositories() )
+                {
+                    getLog().info( "3: " + parent + repository.getId() + " - " + artifactRepository.getId() );
+                    if ( repository.getId().equals( artifactRepository.getId() ) )
+                    {
+                        locations.add( parentPom.getFile().toString() );
+                        // addCollectedRepository(repository, parentPom.getFile().toString());
+                        this.getLog().debug( "Parent repository: " + repoAsString( repository )
+                            + " @ " + parentPom.getFile() );
+                    }
+                }
+                for ( Repository pluginRepository : originalModel.getPluginRepositories() )
+                {
+                    getLog().info( "4: " + parent + pluginRepository.getId() + " - " + artifactRepository.getId() );
+                    if ( pluginRepository.getId().equals( artifactRepository.getId() ) )
+                    {
+                        locations.add( parentPom.getFile().toString() );
+                        // addCollectedRepository(pluginRepository, parentPom.getFile().toString());
+                        this.getLog().debug( "Parent plugin repository: " + repoAsString( pluginRepository )
+                            + " @ " + parentPom.getFile() );
+                    }
+                }
+            }
+            traverseParentPom( artifactRepository, parent, locations );
+        }
+        return;
     }
 
     private String repoAsString( Repository repository )
@@ -326,34 +340,4 @@ public class AnalyzeRepositoriesMojo
         return sb.toString();
     }
 
-    private void addCollectedRepository( Repository repository, String location )
-    {
-        CollectedRepository collectedRepository = new CollectedRepository( repository );
-        Set<String> locations = pomRepositories.get( collectedRepository );
-        if ( locations == null )
-        {
-            locations = new HashSet<>();
-            locations.add( location );
-            pomRepositories.put( collectedRepository,  locations );
-        }
-        else
-        {
-            locations.add( location );
-        }
-    }
-
-  private List<CollectedRepository> getMirrors()
-  {
-      List<CollectedRepository> collectedRepositories = new ArrayList<>();
-      for ( Mirror mirror : settings.getMirrors() )
-      {
-          CollectedRepository collectedRepository = new CollectedRepository();
-          collectedRepository.setId( mirror.getId() );
-          collectedRepository.setUrl( mirror.getUrl() );
-          collectedRepository.setName( mirror.getName() );
-          collectedRepository.setLayout( mirror.getLayout() );
-          collectedRepositories.add( collectedRepository );
-      }
-      return collectedRepositories;
-  }
 }
