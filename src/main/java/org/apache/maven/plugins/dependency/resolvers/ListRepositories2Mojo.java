@@ -39,6 +39,7 @@ import org.apache.maven.project.DefaultProjectBuildingRequest;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.project.ProjectBuilder;
 import org.apache.maven.project.ProjectBuildingRequest;
+import org.apache.maven.settings.Mirror;
 import org.apache.maven.settings.Settings;
 import org.apache.maven.shared.transfer.artifact.ArtifactCoordinate;
 import org.apache.maven.shared.transfer.artifact.DefaultArtifactCoordinate;
@@ -46,7 +47,7 @@ import org.apache.maven.shared.transfer.artifact.resolve.ArtifactResolver;
 import org.apache.maven.shared.transfer.dependencies.collect.DependencyCollector;
 import org.apache.maven.shared.transfer.dependencies.collect.DependencyCollectorException;
 import org.apache.maven.shared.transfer.dependencies.collect.DependencyCollectorNode;
-import org.apache.maven.shared.transfer.dependencies.collect.traversal.DependencyCollectorNodeVisitor;
+import org.apache.maven.shared.transfer.dependencies.collect.graph.DependencyVisitor;
 
 /**
  * Goal that resolves all project dependencies and then lists the repositories used by the build and by the transitive
@@ -63,7 +64,7 @@ public class ListRepositories2Mojo
      * Maven Project Builder component.
     */
     @Component
-    protected ProjectBuilder projectBuilder;
+    private ProjectBuilder projectBuilder;
 
     /**
      * Dependency collector, needed to resolve dependencies.
@@ -75,7 +76,7 @@ public class ListRepositories2Mojo
      * Component used to resolve artifacts and download their files from remote repositories.
      */
     @Component
-    protected ArtifactResolver artifactResolver;
+    private ArtifactResolver artifactResolver;
 
     /**
      * The system settings for Maven. This is the instance resulting from
@@ -88,15 +89,32 @@ public class ListRepositories2Mojo
      * Remote repositories used for the project.
      */
     @Parameter( defaultValue = "${project.remoteArtifactRepositories}", required = true, readonly = true )
-    protected List<ArtifactRepository> remoteRepositories;
+    private List<ArtifactRepository> remoteRepositories;
 
     /**
-     * Include parent poms in the dependency resolution list.
+     * Whether to track to locations of the listed repositories.
      *
-     * @since 2.8
+     * @since 3.1.2
      */
-    @Parameter( property = "includeParents", defaultValue = "false" )
-    boolean includeParents;
+    @Parameter( property = "location", defaultValue = "false" )
+    private boolean location;
+
+    /**
+     * Sets whether the plugin runs in verbose mode. As of plugin version 2.3, the default value is derived from Maven's
+     * global debug flag (compare command line switch <code>-X</code>). <br/>
+     *
+     * @since 3.1.2
+     */
+    @Parameter( property = "verbose" )
+    private boolean verbose;
+
+//    /**
+//     * Include parent poms in the dependency resolution list.
+//     *
+//     * @since 2.8
+//     */
+//    @Parameter( property = "includeParents", defaultValue = "false" )
+//    boolean includeParents;
 
     /**
      * Displays a list of the repositories used by this build.
@@ -107,28 +125,17 @@ public class ListRepositories2Mojo
     protected void doExecute()
         throws MojoExecutionException
     {
-        final Set<ArtifactRepository> repositories = new HashSet<ArtifactRepository>();
 
-        DependencyCollectorNodeVisitor visitor = new DependencyCollectorNodeVisitor()
+        final Set<ArtifactRepository> repositories = new HashSet<ArtifactRepository>();
+        final Set<Artifact> artifacts = new HashSet<Artifact>();
+
+        DependencyVisitor visitor = new DependencyVisitor()
         {
             @Override
             public boolean visit( DependencyCollectorNode dependencyCollectorNode )
             {
-                System.out.println( "visit artifact " + dependencyCollectorNode.getArtifact() );
-                for ( ArtifactRepository artifactRepository: dependencyCollectorNode.getRemoteRepositories() )
-                {
-                    System.out.println( " remote repos: " + artifactRepository.getId()
-                        + " " + artifactRepository.getUrl() );
-                }
-                System.out.println( " scope: " + dependencyCollectorNode.getScope() );
-                System.out.println( " optional: " + dependencyCollectorNode.getOptional() );
-                for ( DependencyCollectorNode child : dependencyCollectorNode.getChildren() )
-                {
-                    System.out.println( " child: " + child.getArtifact() );
-                }
-
                 repositories.addAll( dependencyCollectorNode.getRemoteRepositories() );
-
+                artifacts.add( dependencyCollectorNode.getArtifact() );
                 return true;
             }
 
@@ -145,10 +152,38 @@ public class ListRepositories2Mojo
 
             dependencyCollector.visit( projectBuildingRequest, getProject().getModel(), visitor );
 
+            this.getLog().debug( "Artifacts used by this build:" );
+            for ( Artifact artifact : artifacts )
+            {
+                this.getLog().debug( artifact.toString() );
+            }
+
             this.getLog().info( "Repositories used by this build:" );
             for ( ArtifactRepository repo : repositories )
             {
-                this.getLog().info( repo.toString() );
+                Set<String> locations = new HashSet<String>();
+                for ( Mirror mirror : settings.getMirrors() )
+                {
+                    if ( mirror.getId().equals( repo.getId() )
+                        && ( mirror.getUrl().equals( repo.getUrl() ) ) )
+                    {
+                        locations.add( "Maven settings (user/global)" );
+                    }
+                }
+
+                if ( location )
+                {
+                    for ( Artifact artifact : artifacts )
+                    {
+                        MavenProject project = getMavenProject( ArtifactUtils.key( artifact ) );
+                        traversePom( repo, artifact, project, locations );
+                    }
+                    writeRepository( repo, locations );
+                }
+                else
+                {
+                    this.getLog().info( repo.toString() );
+                }
             }
         }
         catch ( DependencyCollectorException e )
@@ -157,13 +192,13 @@ public class ListRepositories2Mojo
         }
     }
 
-    private void listRepository( ArtifactRepository artifactRepository, Set<String> locations )
+    private void writeRepository( ArtifactRepository artifactRepository, Set<String> locations )
     {
         StringBuilder sb = new StringBuilder( 256 );
         sb.append( artifactRepository.toString() );
         for ( String location : locations )
         {
-            sb.append( "   locate: " ).append( location ).append( "\n" );
+            sb.append( " location: " ).append( location ).append( "\n" );
         }
         this.getLog().info( sb.toString() );
     }
@@ -256,24 +291,22 @@ public class ListRepositories2Mojo
         {
             for ( Repository repository : mavenProject.getOriginalModel().getRepositories() )
             {
-                getLog().info( "1: " + artifact + repository.getId() + " - " + artifactRepository.getId() );
-                if ( repository.getId().equals( artifactRepository.getId() ) )
+                getLog().debug( "1: " + artifact + repository.getId() + " - " + artifactRepository.getId() );
+                if ( isRepositoryEqual( repository, artifactRepository ) )
                 {
                     locations.add( mavenProject.getModel().getPomFile().toString() );
-                    // addCollectedRepository( r, mavenProject.getModel().getPomFile().toString() );
-                    this.getLog().debug( "Repository: " + repoAsString( repository )
+                    verbose( "Repository: " + repoAsString( repository )
                         + " @ " + mavenProject.getOriginalModel().getPomFile()
                         + " @ " + artifact );
                 }
             }
             for ( Repository pluginRepository : mavenProject.getOriginalModel().getPluginRepositories() )
             {
-                getLog().info( "2: " + artifact + pluginRepository.getId() + " - " + artifactRepository.getId() );
-                if ( pluginRepository.getId().equals( artifactRepository.getId() ) )
+                getLog().debug( "2: " + artifact + pluginRepository.getId() + " - " + artifactRepository.getId() );
+                if ( isRepositoryEqual( pluginRepository, artifactRepository ) )
                 {
                     locations.add( mavenProject.getModel().getPomFile().toString() );
-                    // addCollectedRepository( pluginRepository, mavenProject.getModel().getPomFile().toString() );
-                    this.getLog().debug( "Plugin repository: " + repoAsString( pluginRepository )
+                    verbose( "Plugin repository: " + repoAsString( pluginRepository )
                         + " @ " + mavenProject.getOriginalModel().getPomFile()
                         + " @ " + artifact );
                 }
@@ -304,23 +337,21 @@ public class ListRepositories2Mojo
 
                 for ( Repository repository : originalModel.getRepositories() )
                 {
-                    getLog().info( "3: " + parent + repository.getId() + " - " + artifactRepository.getId() );
-                    if ( repository.getId().equals( artifactRepository.getId() ) )
+                    getLog().debug( "3: " + parent + repository.getId() + " - " + artifactRepository.getId() );
+                    if ( isRepositoryEqual( repository, artifactRepository ) )
                     {
                         locations.add( parentPom.getFile().toString() );
-                        // addCollectedRepository(repository, parentPom.getFile().toString());
-                        this.getLog().debug( "Parent repository: " + repoAsString( repository )
+                        verbose( "Parent repository: " + repoAsString( repository )
                             + " @ " + parentPom.getFile() );
                     }
                 }
                 for ( Repository pluginRepository : originalModel.getPluginRepositories() )
                 {
-                    getLog().info( "4: " + parent + pluginRepository.getId() + " - " + artifactRepository.getId() );
-                    if ( pluginRepository.getId().equals( artifactRepository.getId() ) )
+                    getLog().debug( "4: " + parent + pluginRepository.getId() + " - " + artifactRepository.getId() );
+                    if ( isRepositoryEqual( pluginRepository, artifactRepository ) )
                     {
                         locations.add( parentPom.getFile().toString() );
-                        // addCollectedRepository(pluginRepository, parentPom.getFile().toString());
-                        this.getLog().debug( "Parent plugin repository: " + repoAsString( pluginRepository )
+                        verbose( "Parent plugin repository: " + repoAsString( pluginRepository )
                             + " @ " + parentPom.getFile() );
                     }
                 }
@@ -338,6 +369,20 @@ public class ListRepositories2Mojo
         sb.append( repository.getUrl() );
         sb.append( ")" );
         return sb.toString();
+    }
+
+    private void verbose( String message )
+    {
+        if ( verbose || getLog().isDebugEnabled() )
+        {
+            getLog().info( message );
+        }
+    }
+
+    private boolean isRepositoryEqual( Repository repository, ArtifactRepository artifactRepository )
+    {
+        return repository.getId().equals( artifactRepository.getId() )
+            && repository.getUrl().equals( artifactRepository.getUrl() );
     }
 
 }
