@@ -287,28 +287,25 @@ public class ListRepositories2Mojo
                               Artifact artifact, MavenProject mavenProject, Set<String> locations )
         throws MojoExecutionException
     {
+        verbose( "Looking for locations for repository " + repositoryAsString( artifactRepository ) );
         if ( mavenProject != null )
         {
             for ( Repository repository : mavenProject.getOriginalModel().getRepositories() )
             {
-                getLog().debug( "1: " + artifact + repository.getId() + " - " + artifactRepository.getId() );
+                verbose( "Found repository: " + repositoryAsString( repository )
+                    + " @ " + artifact + ":" + mavenProject.getOriginalModel().getPomFile() );
                 if ( isRepositoryEqual( repository, artifactRepository ) )
                 {
                     locations.add( mavenProject.getModel().getPomFile().toString() );
-                    verbose( "Repository: " + repoAsString( repository )
-                        + " @ " + mavenProject.getOriginalModel().getPomFile()
-                        + " @ " + artifact );
                 }
             }
             for ( Repository pluginRepository : mavenProject.getOriginalModel().getPluginRepositories() )
             {
-                getLog().debug( "2: " + artifact + pluginRepository.getId() + " - " + artifactRepository.getId() );
+                verbose( "Found plugin repository: " + repositoryAsString( pluginRepository )
+                    + " @ " + artifact + ":" + mavenProject.getOriginalModel().getPomFile() );
                 if ( isRepositoryEqual( pluginRepository, artifactRepository ) )
                 {
                     locations.add( mavenProject.getModel().getPomFile().toString() );
-                    verbose( "Plugin repository: " + repoAsString( pluginRepository )
-                        + " @ " + mavenProject.getOriginalModel().getPomFile()
-                        + " @ " + artifact );
                 }
             }
             traverseParentPom( artifactRepository, mavenProject, locations );
@@ -337,22 +334,20 @@ public class ListRepositories2Mojo
 
                 for ( Repository repository : originalModel.getRepositories() )
                 {
-                    getLog().debug( "3: " + parent + repository.getId() + " - " + artifactRepository.getId() );
+                    verbose( "Found parent repository " + repositoryAsString( repository )
+                        + " @ " + parentPom.getArtifact() + ":" + parentPom.getFile() );
                     if ( isRepositoryEqual( repository, artifactRepository ) )
                     {
                         locations.add( parentPom.getFile().toString() );
-                        verbose( "Parent repository: " + repoAsString( repository )
-                            + " @ " + parentPom.getFile() );
                     }
                 }
                 for ( Repository pluginRepository : originalModel.getPluginRepositories() )
                 {
-                    getLog().debug( "4: " + parent + pluginRepository.getId() + " - " + artifactRepository.getId() );
+                    verbose( "Found parent plugin repository: " + repositoryAsString( pluginRepository )
+                        + " @ " + parentPom.getArtifact() + ":" + parentPom.getFile() );
                     if ( isRepositoryEqual( pluginRepository, artifactRepository ) )
                     {
                         locations.add( parentPom.getFile().toString() );
-                        verbose( "Parent plugin repository: " + repoAsString( pluginRepository )
-                            + " @ " + parentPom.getFile() );
                     }
                 }
             }
@@ -361,7 +356,17 @@ public class ListRepositories2Mojo
         return;
     }
 
-    private String repoAsString( Repository repository )
+    private String repositoryAsString( Repository repository )
+    {
+        StringBuilder sb = new StringBuilder( 32 );
+        sb.append( repository.getId() );
+        sb.append( " (" );
+        sb.append( repository.getUrl() );
+        sb.append( ")" );
+        return sb.toString();
+    }
+
+    private String repositoryAsString( ArtifactRepository repository )
     {
         StringBuilder sb = new StringBuilder( 32 );
         sb.append( repository.getId() );
