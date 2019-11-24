@@ -44,10 +44,11 @@ import org.apache.maven.settings.Settings;
 import org.apache.maven.shared.transfer.artifact.ArtifactCoordinate;
 import org.apache.maven.shared.transfer.artifact.DefaultArtifactCoordinate;
 import org.apache.maven.shared.transfer.artifact.resolve.ArtifactResolver;
-import org.apache.maven.shared.transfer.dependencies.collect.DependencyCollector;
-import org.apache.maven.shared.transfer.dependencies.collect.DependencyCollectorException;
-import org.apache.maven.shared.transfer.dependencies.collect.DependencyCollectorNode;
-import org.apache.maven.shared.transfer.dependencies.collect.graph.DependencyVisitor;
+import org.apache.maven.shared.transfer.dependencies.collection.CollectResult;
+import org.apache.maven.shared.transfer.dependencies.collection.DependencyCollectionException;
+import org.apache.maven.shared.transfer.dependencies.collection.DependencyCollector;
+import org.apache.maven.shared.transfer.dependencies.graph.DependencyNode;
+import org.apache.maven.shared.transfer.dependencies.graph.DependencyVisitor;
 
 /**
  * Goal that resolves all project dependencies and then lists the repositories used by the build and by the transitive
@@ -92,14 +93,6 @@ public class ListRepositories2Mojo
     private List<ArtifactRepository> remoteRepositories;
 
     /**
-     * Whether to track to locations of the listed repositories.
-     *
-     * @since 3.1.2
-     */
-    @Parameter( property = "showLocations", defaultValue = "false" )
-    private boolean showLocations;
-
-    /**
      * Sets whether the plugin runs in verbose mode. As of plugin version 2.3, the default value is derived from Maven's
      * global debug flag (compare command line switch <code>-X</code>). <br/>
      *
@@ -129,15 +122,15 @@ public class ListRepositories2Mojo
         DependencyVisitor visitor = new DependencyVisitor()
         {
             @Override
-            public boolean visit( DependencyCollectorNode dependencyCollectorNode )
+            public boolean visitEnter( DependencyNode dependencyNode )
             {
-                repositories.addAll( dependencyCollectorNode.getRemoteRepositories() );
-                artifacts.add( dependencyCollectorNode.getArtifact() );
+                repositories.addAll( dependencyNode.getRemoteRepositories() );
+                artifacts.add( dependencyNode.getArtifact() );
                 return true;
             }
 
             @Override
-            public boolean endVisit( DependencyCollectorNode dependencyCollectorNode )
+            public boolean visitLeave( DependencyNode dependencyNode )
             {
                 return true;
             }
@@ -147,9 +140,23 @@ public class ListRepositories2Mojo
         {
             ProjectBuildingRequest projectBuildingRequest = session.getProjectBuildingRequest();
 
-            dependencyCollector.visit( projectBuildingRequest, getProject().getModel(), visitor );
+////            CollectorResult collectResult =
+////                dependencyCollector.collectDependencies( session.getProjectBuildingRequest(),
+////                getProject().getModel() );
+//            CollectRequest collectRequest = new CollectRequest();
+//            Dependency dependency = new Dependency();
+//            collectRequest.setRoot( dependency );
 
-          verbose( "Artifacts used by this build:" );
+            CollectResult collectResult =
+                dependencyCollector.collectDependencies( projectBuildingRequest, getProject().getModel() );
+
+            getLog().info( "collectResult: "  + collectResult );
+            getLog().info( "collectResult root: "  + collectResult.getRoot() );
+            getLog().info( "collectResult exceptions: "  + collectResult.getExceptions() );
+
+            collectResult.getRoot().accept( visitor );
+
+            verbose( "Artifacts used by this build:" );
             for ( Artifact artifact : artifacts )
             {
                 verbose( artifact.toString() );
@@ -158,7 +165,7 @@ public class ListRepositories2Mojo
             this.getLog().info( "Repositories used by this build:" );
             for ( ArtifactRepository repo : repositories )
             {
-                if ( showLocations )
+                if ( isVerbose() )
                 {
                     Set<String> locations = new HashSet<String>();
                     for ( Mirror mirror : settings.getMirrors() )
@@ -187,10 +194,14 @@ public class ListRepositories2Mojo
                 }
             }
         }
-        catch ( DependencyCollectorException e )
+        catch ( DependencyCollectionException e )
         {
-            throw new MojoExecutionException( "Unable to collect artifacts", e );
+            throw new MojoExecutionException( "Unable to collect", e );
         }
+//        catch ( DependencyGrapherException e )
+//        {
+//            throw new MojoExecutionException( "Unable to graph artifacts", e );
+//        }
     }
 
     private void writeRepository( ArtifactRepository artifactRepository, Set<String> locations )
@@ -361,9 +372,14 @@ public class ListRepositories2Mojo
         return sb.toString();
     }
 
+    private boolean isVerbose()
+    {
+        return ( verbose || getLog().isDebugEnabled() );
+    }
+
     private void verbose( String message )
     {
-        if ( verbose || getLog().isDebugEnabled() )
+        if ( isVerbose() )
         {
             getLog().info( message );
         }

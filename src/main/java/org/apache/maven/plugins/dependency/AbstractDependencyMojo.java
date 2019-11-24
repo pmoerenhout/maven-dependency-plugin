@@ -60,9 +60,8 @@ public abstract class AbstractDependencyMojo
     private ArchiverManager archiverManager;
 
     /**
-     * <p>
-     * will use the jvm chmod, this is available for user and all level group level will be ignored
-     * </p>
+     * will use the JVM chmod, this is available for user and all level group level will be ignored
+     *
      * <b>since 2.6 is on by default</b>
      * 
      * @since 2.5.1

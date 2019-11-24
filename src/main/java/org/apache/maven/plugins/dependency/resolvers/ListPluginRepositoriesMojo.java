@@ -44,7 +44,6 @@ import org.apache.maven.settings.Settings;
 import org.apache.maven.shared.transfer.artifact.ArtifactCoordinate;
 import org.apache.maven.shared.transfer.artifact.DefaultArtifactCoordinate;
 import org.apache.maven.shared.transfer.artifact.resolve.ArtifactResolver;
-import org.apache.maven.shared.transfer.dependencies.collect.DependencyCollector;
 
 /**
  * Goal that resolves all project plugin dependencies and then lists the repositories used by the build
@@ -61,12 +60,6 @@ public class ListPluginRepositoriesMojo
     */
     @Component
     private ProjectBuilder projectBuilder;
-
-    /**
-     * Dependency collector, needed to resolve dependencies.
-     */
-    @Component( role = DependencyCollector.class )
-    private DependencyCollector dependencyCollector;
 
     /**
      * Component used to resolve artifacts and download their files from remote repositories.
@@ -119,7 +112,7 @@ public class ListPluginRepositoriesMojo
         this.getLog().info( "Plugin repositories used by this build:" );
         for ( ArtifactRepository repo : repositories )
         {
-            if ( showLocations )
+            if ( isVerbose())
             {
                 Set<String> locations = new HashSet<String>();
                 for ( Mirror mirror : settings.getMirrors() )
@@ -316,9 +309,14 @@ public class ListPluginRepositoriesMojo
         return sb.toString();
     }
 
+    private boolean isVerbose()
+    {
+        return ( verbose || getLog().isDebugEnabled() );
+    }
+
     private void verbose( String message )
     {
-        if ( verbose || getLog().isDebugEnabled() )
+        if ( isVerbose() )
         {
             getLog().info( message );
         }
