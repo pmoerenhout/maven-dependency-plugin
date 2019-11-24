@@ -81,14 +81,6 @@ public class ListPluginRepositoriesMojo
     private List<ArtifactRepository> pluginRepositories;
 
     /**
-     * Whether to track to locations of the listed repositories.
-     *
-     * @since 3.1.2
-     */
-    @Parameter( property = "showLocations", defaultValue = "false" )
-    private boolean showLocations;
-
-    /**
      * Sets whether the plugin runs in verbose mode. As of plugin version 2.3, the default value is derived from Maven's
      * global debug flag (compare command line switch <code>-X</code>). <br/>
      *
@@ -112,7 +104,7 @@ public class ListPluginRepositoriesMojo
         this.getLog().info( "Plugin repositories used by this build:" );
         for ( ArtifactRepository repo : repositories )
         {
-            if ( isVerbose())
+            if ( isVerbose() )
             {
                 Set<String> locations = new HashSet<String>();
                 for ( Mirror mirror : settings.getMirrors() )
