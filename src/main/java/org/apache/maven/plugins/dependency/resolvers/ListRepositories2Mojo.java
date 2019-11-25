@@ -47,6 +47,7 @@ import org.apache.maven.shared.transfer.artifact.resolve.ArtifactResolver;
 import org.apache.maven.shared.transfer.dependencies.collection.CollectResult;
 import org.apache.maven.shared.transfer.dependencies.collection.DependencyCollectionException;
 import org.apache.maven.shared.transfer.dependencies.collection.DependencyCollector;
+import org.apache.maven.shared.transfer.dependencies.graph.DependencyCycle;
 import org.apache.maven.shared.transfer.dependencies.graph.DependencyNode;
 import org.apache.maven.shared.transfer.dependencies.graph.DependencyVisitor;
 
@@ -140,19 +141,18 @@ public class ListRepositories2Mojo
         {
             ProjectBuildingRequest projectBuildingRequest = session.getProjectBuildingRequest();
 
-////            CollectorResult collectResult =
-////                dependencyCollector.collectDependencies( session.getProjectBuildingRequest(),
-////                getProject().getModel() );
-//            CollectRequest collectRequest = new CollectRequest();
-//            Dependency dependency = new Dependency();
-//            collectRequest.setRoot( dependency );
-
             CollectResult collectResult =
                 dependencyCollector.collectDependencies( projectBuildingRequest, getProject().getModel() );
 
-            getLog().info( "collectResult: "  + collectResult );
-            getLog().info( "collectResult root: "  + collectResult.getRoot() );
-            getLog().info( "collectResult exceptions: "  + collectResult.getExceptions() );
+            getLog().info( "collectResult: " );
+            getLog().info( " root artifact: "  + collectResult.getRoot().getArtifact() );
+            getLog().info( " exceptions: "  + collectResult.getExceptions() );
+            getLog().info( " cycles: "  + collectResult.getCycles() );
+            for ( DependencyCycle cycle : collectResult.getCycles() )
+            {
+                getLog().info( " preceding deps: "  + cycle.getPrecedingDependencies() );
+                getLog().info( " cyclic deps: "  + cycle.getCyclicDependencies() );
+            }
 
             collectResult.getRoot().accept( visitor );
 
@@ -198,10 +198,6 @@ public class ListRepositories2Mojo
         {
             throw new MojoExecutionException( "Unable to collect", e );
         }
-//        catch ( DependencyGrapherException e )
-//        {
-//            throw new MojoExecutionException( "Unable to graph artifacts", e );
-//        }
     }
 
     private void writeRepository( ArtifactRepository artifactRepository, Set<String> locations )
@@ -299,13 +295,13 @@ public class ListRepositories2Mojo
                               Artifact artifact, MavenProject mavenProject, Set<String> locations )
         throws MojoExecutionException
     {
-        verbose( "Looking for locations of repository " + repositoryAsString( artifactRepository )
+        getLog().debug( "Looking for locations of repository " + repositoryAsString( artifactRepository )
             + " for " + artifact );
         if ( mavenProject != null )
         {
             for ( Repository repository : mavenProject.getOriginalModel().getRepositories() )
             {
-                verbose( "Found repository: " + repositoryAsString( repository )
+                getLog().debug( "Found repository: " + repositoryAsString( repository )
                     + " @ " + artifact + ":" + mavenProject.getOriginalModel().getPomFile() );
                 if ( isRepositoryEqual( repository, artifactRepository ) )
                 {
@@ -339,7 +335,7 @@ public class ListRepositories2Mojo
 
                 for ( Repository repository : originalModel.getRepositories() )
                 {
-                    verbose( "Found parent repository " + repositoryAsString( repository )
+                    getLog().debug( "Found parent repository " + repositoryAsString( repository )
                         + " @ " + parentPom.getArtifact() + ":" + parentPom.getFile() );
                     if ( isRepositoryEqual( repository, artifactRepository ) )
                     {
@@ -387,6 +383,7 @@ public class ListRepositories2Mojo
 
     private boolean isRepositoryEqual( Repository repository, ArtifactRepository artifactRepository )
     {
+        // TODO: Use org.apache.maven.RepositoryUtils in Maven or check also snapshots, etc.
         return repository.getId().equals( artifactRepository.getId() )
             && repository.getUrl().equals( artifactRepository.getUrl() );
     }
