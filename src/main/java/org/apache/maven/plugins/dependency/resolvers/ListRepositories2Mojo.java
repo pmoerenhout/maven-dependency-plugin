@@ -44,12 +44,12 @@ import org.apache.maven.settings.Settings;
 import org.apache.maven.shared.transfer.artifact.ArtifactCoordinate;
 import org.apache.maven.shared.transfer.artifact.DefaultArtifactCoordinate;
 import org.apache.maven.shared.transfer.artifact.resolve.ArtifactResolver;
-import org.apache.maven.shared.transfer.dependencies.collection.CollectResult;
-import org.apache.maven.shared.transfer.dependencies.collection.DependencyCollectionException;
-import org.apache.maven.shared.transfer.dependencies.collection.DependencyCollector;
-import org.apache.maven.shared.transfer.dependencies.graph.DependencyCycle;
-import org.apache.maven.shared.transfer.dependencies.graph.DependencyNode;
-import org.apache.maven.shared.transfer.dependencies.graph.DependencyVisitor;
+import org.apache.maven.shared.transfer.collection.CollectResult;
+import org.apache.maven.shared.transfer.collection.DependencyCollectionException;
+import org.apache.maven.shared.transfer.collection.DependencyCollector;
+import org.apache.maven.shared.transfer.graph.DependencyCycle;
+import org.apache.maven.shared.transfer.graph.DependencyNode;
+import org.apache.maven.shared.transfer.graph.DependencyVisitor;
 
 /**
  * Goal that resolves all project dependencies and then lists the repositories used by the build and by the transitive
