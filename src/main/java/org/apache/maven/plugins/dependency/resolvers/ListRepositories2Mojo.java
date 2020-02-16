@@ -47,7 +47,6 @@ import org.apache.maven.shared.transfer.artifact.resolve.ArtifactResolver;
 import org.apache.maven.shared.transfer.collection.CollectResult;
 import org.apache.maven.shared.transfer.collection.DependencyCollectionException;
 import org.apache.maven.shared.transfer.collection.DependencyCollector;
-import org.apache.maven.shared.transfer.graph.DependencyCycle;
 import org.apache.maven.shared.transfer.graph.DependencyNode;
 import org.apache.maven.shared.transfer.graph.DependencyVisitor;
 
@@ -147,12 +146,6 @@ public class ListRepositories2Mojo
             getLog().info( "collectResult: " );
             getLog().info( " root artifact: "  + collectResult.getRoot().getArtifact() );
             getLog().info( " exceptions: "  + collectResult.getExceptions() );
-            getLog().info( " cycles: "  + collectResult.getCycles() );
-            for ( DependencyCycle cycle : collectResult.getCycles() )
-            {
-                getLog().info( " preceding deps: "  + cycle.getPrecedingDependencies() );
-                getLog().info( " cyclic deps: "  + cycle.getCyclicDependencies() );
-            }
 
             collectResult.getRoot().accept( visitor );
 
